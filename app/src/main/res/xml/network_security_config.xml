@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!-- 允许访问上金所和工行 -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">sge.com.cn</domain>
+        <domain includeSubdomains="true">icbc.com.cn</domain>
+    </domain-config>
+</network-security-config>

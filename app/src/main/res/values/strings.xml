@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">黄金监控助手</string>
+    <string name="title_activity_main">黄金监控</string>
+    <string name="title_activity_settings">设置</string>
+    <string name="title_activity_window_period_edit">编辑窗口期</string>
+    
+    <!-- 主界面 -->
+    <string name="current_price">当前金价</string>
+    <string name="pool_balance">监控池余额</string>
+    <string name="next_run_time">下次运行时间</string>
+    <string name="run_now">立即运行</string>
+    <string name="settings">配置管理</string>
+    <string name="window_periods">窗口期管理</string>
+    <string name="global_settings">全局设置</string>
+    
+    <!-- 窗口期 -->
+    <string name="add_window_period">添加窗口期</string>
+    <string name="edit_window_period">编辑窗口期</string>
+    <string name="delete_window_period">删除窗口期</string>
+    <string name="start_date">开始日期</string>
+    <string name="end_date">结束日期</string>
+    <string name="moving_average_period">均线周期</string>
+    <string name="trigger_threshold">触发阈值 (%)</string>
+    <string name="buy_amount">买入克数</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    
+    <!-- 全局设置 -->
+    <string name="crash_threshold">暴跌阈值 (%)</string>
+    <string name="run_time">每日运行时间</string>
+    <string name="data_source">数据源选择</string>
+    <string name="manual_price_input">手动输入金价</string>
+    
+    <!-- 通知 -->
+    <string name="notification_channel_name">金价提醒</string>
+    <string name="notification_channel_description">黄金买入提醒通知</string>
+    <string name="buy_reminder">买入提醒</string>
+    <string name="price_update">金价更新</string>
+    
+    <!-- 数据源选项 -->
+    <string name="data_source_auto">自动选择</string>
+    <string name="data_source_sge">上海黄金交易所</string>
+    <string name="data_source_icbc">工商银行</string>
+    <string name="data_source_manual">手动输入</string>
+    
+    <!-- 均线周期 -->
+    <string name="ma_5_days">5 日均线</string>
+    <string name="ma_10_days">10 日均线</string>
+    <string name="ma_20_days">20 日均线</string>
+</resources>
