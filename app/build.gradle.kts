@@ -16,9 +16,6 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        
-        // API Key 配置（请替换为你的 API Key）
-        buildConfigField("String", "JUHE_API_KEY", "\"YOUR_API_KEY_HERE\"")
     }
 
     buildTypes {
@@ -38,6 +35,10 @@ android {
         viewBinding = true
         buildConfig = true
     }
+}
+
+ksp {
+    arg("room.generateKotlin", "true")
 }
 
 // Kotlin 编译配置（使用新的 compilerOptions API）
@@ -73,6 +74,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     
+    // JSON Serialization
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // Preferences
     implementation("androidx.preference:preference-ktx:1.2.1")
     

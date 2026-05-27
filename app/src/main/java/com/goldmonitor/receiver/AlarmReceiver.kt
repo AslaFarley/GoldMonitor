@@ -4,7 +4,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.goldmonitor.GoldMonitorApp
 import com.goldmonitor.service.MonitorForegroundService
+import com.goldmonitor.service.MonitorScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * 闹钟触发接收器
@@ -27,6 +32,19 @@ class AlarmReceiver : BroadcastReceiver() {
             context.startForegroundService(serviceIntent)
         } else {
             context.startService(serviceIntent)
+        }
+
+        // 重新调度明天的闹钟
+        CoroutineScope(Dispatchers.IO).launch {
+            val db = GoldMonitorApp.database
+            val config = db.globalConfigDao().getConfig()
+            if (config != null) {
+                MonitorScheduler.scheduleDaily(
+                    context.applicationContext,
+                    config.runHour,
+                    config.runMinute
+                )
+            }
         }
     }
 }

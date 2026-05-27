@@ -2,7 +2,6 @@ package com.goldmonitor.data
 
 import android.content.Context
 import android.util.Log
-import com.goldmonitor.BuildConfig
 import com.goldmonitor.model.GoldPriceRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,14 +42,21 @@ class SgeGoldFetcher(
     
     companion object {
         private const val API_URL = "https://web.juhe.cn/finance/gold/shgold"
-        private val API_KEY = BuildConfig.JUHE_API_KEY
         private const val PREF_NAME = "gold_price_cache"
+        private const val KEY_API_KEY = "juhe_api_key"
         private const val KEY_LAST_PRICE = "last_price"
         private const val KEY_LAST_YESTERDAY_PRICE = "last_yesterday_price"
         private const val KEY_LAST_FETCH_TIME = "last_fetch_time"
     }
     
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * 获取当前的 API Key (仅从 SharedPreferences 获取，不再使用内置默认 Key)
+     */
+    private fun getApiKey(): String? {
+        return prefs.getString(KEY_API_KEY, null)
+    }
     
     /**
      * 获取今日金价（带缓存）
@@ -75,8 +81,15 @@ class SgeGoldFetcher(
             Log.d(TAG, "上金所：强制刷新，跳过缓存")
         }
         
+        // 检查 API Key 是否已设置
+        val apiKey = getApiKey()
+        if (apiKey == null) {
+            Log.e(TAG, "上金所：未设置 API Key")
+            return@withContext GoldPriceData(0.0, null, null, null, ApiError(10001, "请先在设置中配置 API Key"))
+        }
+
         return@withContext try {
-            val url = buildUrl()
+            val url = "$API_URL?key=$apiKey&v=1"
             Log.d(TAG, "上金所：请求 URL: $url")
             
             val response = URL(url)
@@ -125,9 +138,6 @@ class SgeGoldFetcher(
         }
     }
     
-    private fun buildUrl(): String {
-        return "$API_URL?key=$API_KEY&v=1"
-    }
     
     private fun parseResponse(response: String): GoldPriceData {
         try {

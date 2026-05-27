@@ -101,7 +101,7 @@ class MonitorForegroundService : Service() {
                 )
                 
                 val result = withTimeoutOrNull(30000) {
-                    monitorService.runMonitor()
+                    monitorService.runMonitor(isManual = false)
                 }
                 
                 if (result == null) {

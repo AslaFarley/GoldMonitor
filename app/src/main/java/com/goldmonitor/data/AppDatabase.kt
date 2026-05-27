@@ -24,15 +24,21 @@ interface WindowPeriodDao {
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(windowPeriod: WindowPeriod): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(windowPeriod: WindowPeriod): Long
     
     @Update
-    suspend fun update(windowPeriod: WindowPeriod)
+    suspend fun update(windowPeriod: WindowPeriod): Int
     
     @Delete
-    suspend fun delete(windowPeriod: WindowPeriod)
+    suspend fun delete(windowPeriod: WindowPeriod): Int
     
     @Query("DELETE FROM window_periods WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    suspend fun deleteById(id: Long): Int
+
+    @Query("DELETE FROM window_periods")
+    fun clearAllSync()
 }
 
 /**
@@ -44,25 +50,31 @@ interface GlobalConfigDao {
     suspend fun getConfig(): GlobalConfig?
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(config: GlobalConfig)
+    suspend fun insert(config: GlobalConfig): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(config: GlobalConfig): Long
     
     @Update
-    suspend fun update(config: GlobalConfig)
+    suspend fun update(config: GlobalConfig): Int
     
     @Query("UPDATE global_config SET poolBalance = :balance, updatedAt = :time WHERE id = 1")
-    suspend fun updatePoolBalance(balance: Int, time: Long)
+    suspend fun updatePoolBalance(balance: Int, time: Long): Int
     
     @Query("UPDATE global_config SET lastPrice = :price, lastRunDate = :date, updatedAt = :time WHERE id = 1")
-    suspend fun updateLastPrice(price: Double, date: Long, time: Long)
+    suspend fun updateLastPrice(price: Double, date: Long, time: Long): Int
     
     @Query("UPDATE global_config SET isContinuousDrop = :isDrop, continuousDropDays = :days, updatedAt = :time WHERE id = 1")
-    suspend fun updateContinuousDropStatus(isDrop: Boolean, days: Int, time: Long)
+    suspend fun updateContinuousDropStatus(isDrop: Boolean, days: Int, time: Long): Int
     
     @Query("UPDATE global_config SET apiCallCount = apiCallCount + 1, lastCallDate = :today WHERE id = 1")
-    suspend fun incrementApiCallCount(today: Long)
+    suspend fun incrementApiCallCount(today: Long): Int
     
     @Query("UPDATE global_config SET apiCallCount = 0 WHERE id = 1")
-    suspend fun resetApiCallCount()
+    suspend fun resetApiCallCount(): Int
+
+    @Query("DELETE FROM global_config")
+    fun clearAllSync()
 }
 
 /**
@@ -92,10 +104,16 @@ interface GoldPriceRecordDao {
     suspend fun getMA20(fromDate: Long, toDate: Long): Double?
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(record: GoldPriceRecord)
+    suspend fun insert(record: GoldPriceRecord): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(record: GoldPriceRecord): Long
     
     @Query("DELETE FROM gold_price_records WHERE date < :cutoffDate")
-    suspend fun deleteOlderThan(cutoffDate: Long)
+    suspend fun deleteOlderThan(cutoffDate: Long): Int
+
+    @Query("DELETE FROM gold_price_records")
+    fun clearAllSync()
 }
 
 /**
@@ -111,9 +129,33 @@ interface BuyLogDao {
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(log: BuyLog): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(log: BuyLog): Long
     
     @Query("SELECT SUM(buyAmount) FROM buy_logs")
-    suspend fun getTotalBuyAmount(): Double?
+    suspend fun getTotalBuyAmount(): Int?
+
+    @Query("DELETE FROM buy_logs")
+    fun clearAllSync()
+}
+
+/**
+ * API 调用日志数据访问对象
+ */
+@Dao
+interface ApiCallLogDao {
+    @Query("SELECT * FROM api_call_logs WHERE callTime >= :startTime ORDER BY callTime DESC")
+    suspend fun getTodayLogs(startTime: Long): List<ApiCallLog>
+    
+    @Insert
+    suspend fun insert(log: ApiCallLog): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertSync(log: ApiCallLog): Long
+
+    @Query("DELETE FROM api_call_logs")
+    fun clearAllSync()
 }
 
 /**
@@ -124,9 +166,10 @@ interface BuyLogDao {
         WindowPeriod::class,
         GlobalConfig::class,
         GoldPriceRecord::class,
-        BuyLog::class
+        BuyLog::class,
+        ApiCallLog::class
     ],
-    version = 4, // 版本 4：poolBalance 改为 Int
+    version = 5, // 版本 5：新增 api_call_logs 表
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -134,11 +177,30 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun globalConfigDao(): GlobalConfigDao
     abstract fun goldPriceRecordDao(): GoldPriceRecordDao
     abstract fun buyLogDao(): BuyLogDao
+    abstract fun apiCallLogDao(): ApiCallLogDao
     
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
         
+        /**
+         * 数据库迁移：从版本 4 到版本 5
+         * 新增 api_call_logs 表
+         */
+        private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `api_call_logs` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "`callTime` INTEGER NOT NULL, " +
+                            "`isManual` INTEGER NOT NULL, " +
+                            "`result` TEXT NOT NULL, " +
+                            "`price` REAL" +
+                            ")"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -146,7 +208,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "gold_monitor_database"
                 )
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_4_5)
                 .build()
                 INSTANCE = instance
                 instance

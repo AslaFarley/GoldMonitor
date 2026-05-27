@@ -37,14 +37,24 @@ class MonitorService(
     private val globalConfigDao = db.globalConfigDao()
     private val priceRecordDao = db.goldPriceRecordDao()
     private val buyLogDao = db.buyLogDao()
+    private val apiCallLogDao = db.apiCallLogDao()
     private val sgeFetcher = SgeGoldFetcher(context, db)
     
     /**
      * 执行监控任务（每日运行）
      */
-    suspend fun runMonitor(): MonitorResult = withContext(Dispatchers.IO) {
-        Log.d(TAG, "=== runMonitor 开始 ===")
+    suspend fun runMonitor(isManual: Boolean = false): MonitorResult = withContext(Dispatchers.IO) {
+        Log.d(TAG, "=== runMonitor 开始 (isManual=$isManual) ===")
         try {
+            // 0. 检查今日是否已运行成功（非手动模式下）
+            val config = globalConfigDao.getConfig()
+            val today = getTodayTimestamp()
+            
+            if (!isManual && config?.lastRunDate != null && config.lastRunDate >= today) {
+                Log.d(TAG, "今日已运行成功，跳过自动执行")
+                return@withContext MonitorResult.Skipped("今日已运行")
+            }
+
             Log.d(TAG, "1. 检查是否是工作日...")
             
             // 1. 检查是否是工作日
@@ -54,21 +64,33 @@ class MonitorService(
             }
             
             // 2. 获取或初始化全局配置
-            var config = globalConfigDao.getConfig()
+            var currentConfig = config ?: GlobalConfig(
+                poolBalance = 0,
+                crashThreshold = 3.0,
+                runHour = 19,
+                runMinute = 0
+            )
             if (config == null) {
-                // 首次运行，初始化默认配置
-                config = GlobalConfig(
-                    poolBalance = 0,
-                    crashThreshold = 3.0,
-                    runHour = 19,
-                    runMinute = 0
-                )
-                globalConfigDao.insert(config)
+                globalConfigDao.insert(currentConfig)
                 Log.d(TAG, "初始化全局配置")
             }
             
             // 3. 获取今日金价（上金所，强制刷新）
             val priceData = sgeFetcher.fetchTodayPrice(forceRefresh = true)
+            
+            // 记录 API 调用日志
+            val logResult = when {
+                priceData?.error != null -> "错误: ${priceData.error.message}"
+                priceData == null -> "失败: 无法获取数据"
+                else -> "成功"
+            }
+            apiCallLogDao.insert(
+                ApiCallLog(
+                    isManual = isManual,
+                    result = logResult,
+                    price = priceData?.price
+                )
+            )
             
             // 调试日志
             Log.d(TAG, "API 返回：price=${priceData?.price}, yesterdayPrice=${priceData?.yesterdayPrice}, error=${priceData?.error}")
@@ -84,7 +106,7 @@ class MonitorService(
             }
             
             val todayPrice = priceData.price
-            val today = getTodayTimestamp()
+            // today 已在上方定义
             val yesterday = today - 24 * 60 * 60 * 1000 // 昨天 0 点
             
             Log.d(TAG, "今日金价：$todayPrice (上金所)")
@@ -128,8 +150,8 @@ class MonitorService(
             Log.d(TAG, "6. 完成 - 窗口期结果：${windowResult.size} 条")
             
             // 7. 执行暴跌监控策略（优先使用 API 返回的昨结算价）
-            val yesterdayPrice = priceData.yesterdayPrice ?: config.lastPrice
-            val crashResult = executeCrashMonitorStrategy(todayPrice, yesterdayPrice, today, config)
+            val yesterdayPrice = priceData.yesterdayPrice ?: currentConfig.lastPrice
+            val crashResult = executeCrashMonitorStrategy(todayPrice, yesterdayPrice, today, currentConfig)
             
             // 8. 更新最后运行时间和昨日金价
             globalConfigDao.updateLastPrice(todayPrice, today, System.currentTimeMillis())
@@ -144,7 +166,7 @@ class MonitorService(
             notificationHelper.sendPriceUpdateNotification(
                 price = todayPrice,
                 source = "上海黄金交易所",
-                poolBalance = config.poolBalance,
+                poolBalance = currentConfig.poolBalance,
                 messages = messages
             )
             

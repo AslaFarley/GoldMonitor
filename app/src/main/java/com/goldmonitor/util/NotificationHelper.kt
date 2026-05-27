@@ -111,7 +111,7 @@ class NotificationHelper(private val context: Context) {
         
         val totalCost = String.format("%.2f", amount * price)
         val contentText = buildString {
-            append("建议买入：${String.format("%.1f", amount)} 克\n")
+            append("建议买入：${String.format("%d", amount)} 克\n")
             append("当前金价：${String.format("%.2f", price)} 元/克\n")
             append("预计金额：¥$totalCost\n")
             append("触发原因：$reason")

@@ -1,6 +1,11 @@
 package com.goldmonitor.ui
 
 import android.app.TimePickerDialog
+import androidx.activity.result.contract.ActivityResultContracts
+import com.goldmonitor.util.BackupManager
+import java.io.OutputStreamWriter
+import java.io.InputStreamReader
+import java.util.Date
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -33,6 +38,16 @@ class MainActivity : AppCompatActivity() {
     private val db = GoldMonitorApp.database
     private val notificationHelper by lazy { NotificationHelper(applicationContext) }
     
+    // 导出文件
+    private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { saveExportData(it) }
+    }
+
+    // 导入文件
+    private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { confirmImportData(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -73,6 +88,28 @@ class MainActivity : AppCompatActivity() {
         binding.btnSetRunTime.setOnClickListener {
             showRunTimeDialog()
         }
+
+        // 查看 API 日志
+        binding.btnApiLogs.setOnClickListener {
+            val intent = android.content.Intent(this, ApiCallLogActivity::class.java)
+            startActivity(intent)
+        }
+
+        // 设置 API Key
+        binding.btnSetApiKey.setOnClickListener {
+            showSetApiKeyDialog()
+        }
+
+        // 导出数据
+        binding.btnExportData.setOnClickListener {
+            val fileName = "gold_monitor_backup_${SimpleDateFormat("yyyyMMdd", Locale.CHINA).format(Date())}.json"
+            exportLauncher.launch(fileName)
+        }
+
+        // 导入数据
+        binding.btnImportData.setOnClickListener {
+            importLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+        }
         
         // 长按"立即运行"按钮 3 秒进入测试模式
         binding.btnRunNow.setOnLongClickListener {
@@ -97,23 +134,10 @@ class MainActivity : AppCompatActivity() {
                     binding.tvPoolBalance.text = "${config.poolBalance.toInt()} 克"
                     binding.tvCrashThreshold.text = "${String.format("%.1f", config.crashThreshold)}%"
                     binding.tvNextRunTime.text = String.format("%02d:%02d", config.runHour, config.runMinute)
-                    
-                    // API 调用次数
-                    val callCount = config.apiCallCount
-                    val lastCallDate = config.lastCallDate
-                    val todayTimestamp = getTodayTimestamp()
-                    
-                    if (lastCallDate == null || lastCallDate < todayTimestamp) {
-                        db.globalConfigDao().resetApiCallCount()
-                        binding.tvApiCallCount.text = "📊 今日 API 调用：0 次（已清零）"
-                    } else {
-                        binding.tvApiCallCount.text = "📊 今日 API 调用：$callCount 次"
-                    }
                 } else {
                     binding.tvPoolBalance.text = "未设置"
                     binding.tvCrashThreshold.text = "未设置"
                     binding.tvNextRunTime.text = "未设置"
-                    binding.tvApiCallCount.text = "📊 今日 API 调用：0 次"
                 }
                 
                 // 检查 API 错误
@@ -261,7 +285,7 @@ class MainActivity : AppCompatActivity() {
                 
                 Log.d("MainActivity", "调用 runMonitor()...")
                 val result = withTimeoutOrNull(30000) {  // 30 秒超时
-                    monitorService.runMonitor()
+                    monitorService.runMonitor(isManual = true)
                 }
                 
                 if (result == null) {
@@ -323,7 +347,7 @@ class MainActivity : AppCompatActivity() {
             val logText = logs.joinToString("\n\n") { log ->
                 buildString {
                     appendLine("📅 ${dateFormat.format(Date(log.buyDate))}")
-                    appendLine("   买入：${String.format("%.1f", log.buyAmount)} 克")
+                    appendLine("   买入：${String.format("%d", log.buyAmount)} 克")
                     appendLine("   金价：${String.format("%.2f", log.price)} 元/克")
                     appendLine("   原因：${log.reason.description}")
                     if (log.note != null) {
@@ -539,7 +563,87 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("取消", null)
             .show()
     }
-    
+
+    private fun saveExportData(uri: android.net.Uri) {
+        lifecycleScope.launch {
+            try {
+                val json = BackupManager.exportData()
+                contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    OutputStreamWriter(outputStream).use { writer ->
+                        writer.write(json)
+                    }
+                }
+                Toast.makeText(this@MainActivity, "数据已成功导出", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "导出失败", e)
+                Toast.makeText(this@MainActivity, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun confirmImportData(uri: android.net.Uri) {
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ 确认导入")
+            .setMessage("导入将覆盖当前所有数据且无法撤销。建议先导出备份当前数据。确定要继续吗？")
+            .setPositiveButton("确定") { _, _ ->
+                performImport(uri)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun performImport(uri: android.net.Uri) {
+        lifecycleScope.launch {
+            try {
+                val json = contentResolver.openInputStream(uri)?.use { inputStream ->
+                    InputStreamReader(inputStream).readText()
+                }
+                
+                if (json != null) {
+                    val result = BackupManager.importData(json)
+                    if (result.isSuccess) {
+                        Toast.makeText(this@MainActivity, "数据导入成功", Toast.LENGTH_SHORT).show()
+                        loadDashboard()
+                    } else {
+                        Toast.makeText(this@MainActivity, "导入失败: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "导入过程出错", e)
+                Toast.makeText(this@MainActivity, "导入失败: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun showSetApiKeyDialog() {
+        val prefs = getSharedPreferences("gold_price_cache", android.content.Context.MODE_PRIVATE)
+        val currentKey = prefs.getString("juhe_api_key", "")
+
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("设置聚合数据 API Key")
+
+        val input = android.widget.EditText(this)
+        input.hint = "请输入 API Key"
+        input.setText(currentKey)
+        input.setPadding(48, 32, 48, 32)
+        
+        builder.setView(input)
+
+        builder.setPositiveButton("保存") { _, _ ->
+            val newKey = input.text.toString().trim()
+            if (newKey.isNotEmpty()) {
+                prefs.edit().putString("juhe_api_key", newKey).apply()
+                Toast.makeText(this, "API Key 已保存", Toast.LENGTH_SHORT).show()
+                loadDashboard() // 重新加载以确保新 Key 生效
+            } else {
+                Toast.makeText(this, "Key 不能为空", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        builder.setNegativeButton("取消", null)
+        builder.show()
+    }
+
     override fun onResume() {
         super.onResume()
         loadDashboard()

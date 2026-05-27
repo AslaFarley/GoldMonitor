@@ -53,6 +53,12 @@
             android:name=".ui.WindowPeriodEditActivity"
             android:exported="false"
             android:theme="@style/Theme.GoldMonitor" />
+
+        <!-- API 调用日志界面 -->
+        <activity
+            android:name=".ui.ApiCallLogActivity"
+            android:exported="false"
+            android:theme="@style/Theme.GoldMonitor" />
         
         <!-- 监控服务 -->
         <service

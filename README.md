@@ -27,20 +27,6 @@
 - JDK 17
 - Android SDK 34
 
-### 配置 API Key
-
-1. 在 [聚合数据](https://www.juhe.cn/) 注册账号并申请黄金 API
-2. 复制 API Key
-3. 修改 `app/build.gradle.kts`：
-
-```kotlin
-android {
-    defaultConfig {
-        buildConfigField("String", "JUHE_API_KEY", "\"你的 API_KEY\"")
-    }
-}
-```
-
 ### 编译项目
 
 ```bash
@@ -57,6 +43,12 @@ APK 输出位置：`app/build/outputs/apk/debug/app-debug.apk`
 - 监控池余额：3 克
 - 运行时间：14:30
 - 5 个默认窗口期
+
+### 配置 API Key
+
+首次运行前，请在首页点击“设置 API Key”进行配置。
+1. 在 [聚合数据](https://www.juhe.cn/) 注册账号并申请黄金 API
+2. 复制 API Key 并填入应用中
 
 ### 监控策略
 
