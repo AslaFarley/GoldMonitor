@@ -51,7 +51,8 @@
                         android:layout_height="wrap_content"
                         android:text="💰 实时金价"
                         android:textSize="14sp"
-                        android:textColor="@color/text_secondary" />
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary" />
 
                     <TextView
                         android:id="@+id/tvCurrentPrice"
@@ -251,6 +252,14 @@
                         </LinearLayout>
 
                     </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btnPriceHistory"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="📜 查看历史金价"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -493,7 +502,8 @@
                         android:layout_height="wrap_content"
                         android:text="📊 更多功能"
                         android:textSize="14sp"
-                        android:textColor="@color/text_secondary"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
                         android:layout_marginBottom="12dp" />
 
                     <Button

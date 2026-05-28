@@ -1,6 +1,8 @@
 package com.goldmonitor.ui
 
 import android.app.TimePickerDialog
+import android.widget.Button
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import com.goldmonitor.util.BackupManager
 import java.io.OutputStreamWriter
@@ -20,6 +22,7 @@ import com.goldmonitor.data.SgeGoldFetcher
 import com.goldmonitor.databinding.ActivityMainBinding
 import com.goldmonitor.model.GlobalConfig
 import com.goldmonitor.model.WindowPeriod
+import com.goldmonitor.util.PriceCalculator
 import kotlinx.coroutines.withTimeoutOrNull
 import com.goldmonitor.service.MonitorScheduler
 import com.goldmonitor.service.MonitorService
@@ -93,6 +96,11 @@ class MainActivity : AppCompatActivity() {
         binding.btnApiLogs.setOnClickListener {
             val intent = android.content.Intent(this, ApiCallLogActivity::class.java)
             startActivity(intent)
+        }
+
+        // 查看历史金价
+        binding.btnPriceHistory.setOnClickListener {
+            showPriceHistoryDialog()
         }
 
         // 设置 API Key
@@ -178,38 +186,36 @@ class MainActivity : AppCompatActivity() {
                     
                     // 均线计算
                     val priceList = recentPrices.map { it.price }
+                    val previousPrices = if (priceList.isNotEmpty()) priceList.drop(1) else emptyList()
                     
                     // 5 日均线
-                    val ma5 = calculateMA(priceList, 5)
+                    val ma5 = PriceCalculator.calculateMA(previousPrices, 5)
                     if (ma5 != null) {
                         binding.tvMA5Price.text = "${String.format("%.2f", ma5)}"
-                        val ma5Diff = today.price - ma5
-                        val ma5DiffPercent = (ma5Diff / ma5) * 100
-                        binding.tvMA5Diff.text = formatMaDiff(ma5Diff, ma5DiffPercent)
+                        val ma5DiffPercent = PriceCalculator.calculatePercentDiff(today.price, ma5)
+                        binding.tvMA5Diff.text = formatMaDiff(today.price - ma5, ma5DiffPercent)
                     } else {
                         binding.tvMA5Price.text = "--"
                         binding.tvMA5Diff.text = "--"
                     }
                     
                     // 10 日均线
-                    val ma10 = calculateMA(priceList, 10)
+                    val ma10 = PriceCalculator.calculateMA(previousPrices, 10)
                     if (ma10 != null) {
                         binding.tvMA10Price.text = "${String.format("%.2f", ma10)}"
-                        val ma10Diff = today.price - ma10
-                        val ma10DiffPercent = (ma10Diff / ma10) * 100
-                        binding.tvMA10Diff.text = formatMaDiff(ma10Diff, ma10DiffPercent)
+                        val ma10DiffPercent = PriceCalculator.calculatePercentDiff(today.price, ma10)
+                        binding.tvMA10Diff.text = formatMaDiff(today.price - ma10, ma10DiffPercent)
                     } else {
                         binding.tvMA10Price.text = "--"
                         binding.tvMA10Diff.text = "--"
                     }
                     
                     // 20 日均线
-                    val ma20 = calculateMA(priceList, 20)
+                    val ma20 = PriceCalculator.calculateMA(previousPrices, 20)
                     if (ma20 != null) {
                         binding.tvMA20Price.text = "${String.format("%.2f", ma20)}"
-                        val ma20Diff = today.price - ma20
-                        val ma20DiffPercent = (ma20Diff / ma20) * 100
-                        binding.tvMA20Diff.text = formatMaDiff(ma20Diff, ma20DiffPercent)
+                        val ma20DiffPercent = PriceCalculator.calculatePercentDiff(today.price, ma20)
+                        binding.tvMA20Diff.text = formatMaDiff(today.price - ma20, ma20DiffPercent)
                     } else {
                         binding.tvMA20Price.text = "--"
                         binding.tvMA20Diff.text = "--"
@@ -232,13 +238,6 @@ class MainActivity : AppCompatActivity() {
                 Log.e("MainActivity", "loadDashboard 失败", e)
             }
         }
-    }
-    
-    private fun calculateMA(prices: List<Double>, days: Int): Double? {
-        if (prices.isEmpty()) return null
-        val take = minOf(days, prices.size)
-        val sum = prices.take(take).sum()
-        return sum / take
     }
     
     private fun formatMaDiff(diff: Double, diffPercent: Double): String {
@@ -612,6 +611,37 @@ class MainActivity : AppCompatActivity() {
                 Log.e("MainActivity", "导入过程出错", e)
                 Toast.makeText(this@MainActivity, "导入失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
+        }
+    }
+
+    private fun showPriceHistoryDialog() {
+        lifecycleScope.launch {
+            val records = db.goldPriceRecordDao().getRecentFromSge(100) // 获取最近 100 条
+            
+            if (records.isEmpty()) {
+                Toast.makeText(this@MainActivity, "暂无金价历史数据", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+            val historyText = records.joinToString("\n") { record ->
+                "📅 ${dateFormat.format(Date(record.date))} ： ${String.format("%.2f", record.price)} 元/克"
+            }
+            
+            val scrollView = android.widget.ScrollView(this@MainActivity)
+            val textView = TextView(this@MainActivity).apply {
+                text = historyText
+                setPadding(48, 32, 48, 32)
+                textSize = 14f // Use float for sp in Kotlin
+                setTextColor(resources.getColor(R.color.text_primary, null))
+            }
+            scrollView.addView(textView)
+            
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("📜 历史金价记录")
+                .setView(scrollView)
+                .setPositiveButton("关闭", null)
+                .show()
         }
     }
 

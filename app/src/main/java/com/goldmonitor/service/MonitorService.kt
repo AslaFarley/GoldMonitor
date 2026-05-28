@@ -2,10 +2,14 @@ package com.goldmonitor.service
 
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import com.goldmonitor.data.*
 import com.goldmonitor.model.*
 import com.goldmonitor.util.NotificationHelper
+import com.goldmonitor.util.PriceCalculator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -31,6 +35,7 @@ class MonitorService(
 ) {
     companion object {
         private const val TAG = "MonitorService"
+        private val monitorMutex = Mutex()
     }
     
     private val windowPeriodDao = db.windowPeriodDao()
@@ -43,143 +48,145 @@ class MonitorService(
     /**
      * 执行监控任务（每日运行）
      */
-    suspend fun runMonitor(isManual: Boolean = false): MonitorResult = withContext(Dispatchers.IO) {
-        Log.d(TAG, "=== runMonitor 开始 (isManual=$isManual) ===")
-        try {
-            // 0. 检查今日是否已运行成功（非手动模式下）
-            val config = globalConfigDao.getConfig()
-            val today = getTodayTimestamp()
-            
-            if (!isManual && config?.lastRunDate != null && config.lastRunDate >= today) {
-                Log.d(TAG, "今日已运行成功，跳过自动执行")
-                return@withContext MonitorResult.Skipped("今日已运行")
-            }
-
-            Log.d(TAG, "1. 检查是否是工作日...")
-            
-            // 1. 检查是否是工作日
-            if (!isTradingDay()) {
-                Log.d(TAG, "今日非交易日，跳过")
-                return@withContext MonitorResult.Skipped("非交易日")
-            }
-            
-            // 2. 获取或初始化全局配置
-            var currentConfig = config ?: GlobalConfig(
-                poolBalance = 0,
-                crashThreshold = 3.0,
-                runHour = 19,
-                runMinute = 0
-            )
-            if (config == null) {
-                globalConfigDao.insert(currentConfig)
-                Log.d(TAG, "初始化全局配置")
-            }
-            
-            // 3. 获取今日金价（上金所，强制刷新）
-            val priceData = sgeFetcher.fetchTodayPrice(forceRefresh = true)
-            
-            // 记录 API 调用日志
-            val logResult = when {
-                priceData?.error != null -> "错误: ${priceData.error.message}"
-                priceData == null -> "失败: 无法获取数据"
-                else -> "成功"
-            }
-            apiCallLogDao.insert(
-                ApiCallLog(
-                    isManual = isManual,
-                    result = logResult,
-                    price = priceData?.price
-                )
-            )
-            
-            // 调试日志
-            Log.d(TAG, "API 返回：price=${priceData?.price}, yesterdayPrice=${priceData?.yesterdayPrice}, error=${priceData?.error}")
-            
-            // 检查 API 错误
-            if (priceData?.error != null) {
-                Log.e(TAG, "API 错误：${priceData.error.code} - ${priceData.error.message}")
-                return@withContext MonitorResult.Error("API 错误：${priceData.error.message}")
-            }
-            
-            if (priceData == null || priceData.price <= 0) {
-                return@withContext MonitorResult.Error("获取金价失败")
-            }
-            
-            val todayPrice = priceData.price
-            // today 已在上方定义
-            val yesterday = today - 24 * 60 * 60 * 1000 // 昨天 0 点
-            
-            Log.d(TAG, "今日金价：$todayPrice (上金所)")
-            
-            // 4. 更新昨日金价
-            Log.d(TAG, "4. 开始更新昨日金价...")
-            if (priceData.yesterdayPrice != null && priceData.yesterdayPrice > 0) {
-                Log.d(TAG, "4.1 更新 global_config.lastPrice...")
-                globalConfigDao.updateLastPrice(priceData.yesterdayPrice, yesterday, System.currentTimeMillis())
-                Log.d(TAG, "4.1 完成")
+    suspend fun runMonitor(isManual: Boolean = false): MonitorResult = monitorMutex.withLock {
+        withContext(Dispatchers.IO) {
+            Log.d(TAG, "=== runMonitor 开始 (isManual=$isManual) ===")
+            try {
+                // 0. 检查今日是否已运行成功（非手动模式下）
+                val config = globalConfigDao.getConfig()
+                val today = getTodayTimestamp()
                 
-                Log.d(TAG, "4.2 插入昨天金价记录...")
+                if (!isManual && config?.lastRunDate != null && config.lastRunDate >= today) {
+                    Log.d(TAG, "今日已运行成功，跳过自动执行")
+                    return@withContext MonitorResult.Skipped("今日已运行")
+                }
+
+                Log.d(TAG, "1. 检查是否是工作日...")
+                
+                // 1. 检查是否是工作日
+                if (!isTradingDay()) {
+                    Log.d(TAG, "今日非交易日，跳过")
+                    return@withContext MonitorResult.Skipped("非交易日")
+                }
+                
+                // 2. 获取或初始化全局配置
+                var currentConfig = config ?: GlobalConfig(
+                    poolBalance = 0,
+                    crashThreshold = 3.0,
+                    runHour = 19,
+                    runMinute = 0
+                )
+                if (config == null) {
+                    globalConfigDao.insert(currentConfig)
+                    Log.d(TAG, "初始化全局配置")
+                }
+                
+                // 3. 获取今日金价（上金所，强制刷新）
+                val priceData = sgeFetcher.fetchTodayPrice(forceRefresh = true)
+                
+                // 记录 API 调用日志
+                val logResult = when {
+                    priceData?.error != null -> "错误: ${priceData.error.message}"
+                    priceData == null -> "失败: 无法获取数据"
+                    else -> "成功"
+                }
+                apiCallLogDao.insert(
+                    ApiCallLog(
+                        isManual = isManual,
+                        result = logResult,
+                        price = priceData?.price
+                    )
+                )
+                
+                // 调试日志
+                Log.d(TAG, "API 返回：price=${priceData?.price}, yesterdayPrice=${priceData?.yesterdayPrice}, error=${priceData?.error}")
+                
+                // 检查 API 错误
+                if (priceData?.error != null) {
+                    Log.e(TAG, "API 错误：${priceData.error.code} - ${priceData.error.message}")
+                    return@withContext MonitorResult.Error("API 错误：${priceData.error.message}")
+                }
+                
+                if (priceData == null || priceData.price <= 0) {
+                    return@withContext MonitorResult.Error("获取金价失败")
+                }
+                
+                val todayPrice = priceData.price
+                // today 已在上方定义
+                val yesterday = today - 24 * 60 * 60 * 1000 // 昨天 0 点
+                
+                Log.d(TAG, "今日金价：$todayPrice (上金所)")
+                
+                // 4. 更新昨日金价
+                Log.d(TAG, "4. 开始更新昨日金价...")
+                if (priceData.yesterdayPrice != null && priceData.yesterdayPrice > 0) {
+                    Log.d(TAG, "4.1 更新 global_config.lastPrice...")
+                    globalConfigDao.updateLastPrice(priceData.yesterdayPrice, yesterday, System.currentTimeMillis())
+                    Log.d(TAG, "4.1 完成")
+                    
+                    Log.d(TAG, "4.2 插入昨天金价记录...")
+                    priceRecordDao.insert(
+                        GoldPriceRecord(
+                            date = yesterday,
+                            price = priceData.yesterdayPrice,
+                            source = "上海黄金交易所",
+                            isTradingDay = true
+                        )
+                    )
+                    Log.d(TAG, "4.2 完成")
+                    Log.d(TAG, "更新昨日结算价：${priceData.yesterdayPrice}")
+                }
+                Log.d(TAG, "4. 完成")
+                
+                // 5. 保存今日金价记录
+                Log.d(TAG, "5. 插入今日金价记录...")
                 priceRecordDao.insert(
                     GoldPriceRecord(
-                        date = yesterday,
-                        price = priceData.yesterdayPrice,
+                        date = today,
+                        price = todayPrice,
                         source = "上海黄金交易所",
                         isTradingDay = true
                     )
                 )
-                Log.d(TAG, "4.2 完成")
-                Log.d(TAG, "更新昨日结算价：${priceData.yesterdayPrice}")
-            }
-            Log.d(TAG, "4. 完成")
-            
-            // 5. 保存今日金价记录
-            Log.d(TAG, "5. 插入今日金价记录...")
-            priceRecordDao.insert(
-                GoldPriceRecord(
-                    date = today,
+                Log.d(TAG, "5. 完成")
+                
+                // 6. 执行窗口期策略
+                Log.d(TAG, "6. 开始执行窗口期策略...")
+                val windowResult = executeWindowPeriodStrategy(todayPrice, today)
+                Log.d(TAG, "6. 完成 - 窗口期结果：${windowResult.size} 条")
+                
+                // 7. 执行暴跌监控策略（优先使用 API 返回的昨结算价）
+                val yesterdayPrice = priceData.yesterdayPrice ?: currentConfig.lastPrice
+                val crashResult = executeCrashMonitorStrategy(todayPrice, yesterdayPrice, today, currentConfig)
+                
+                // 8. 更新最后运行时间和昨日金价
+                globalConfigDao.updateLastPrice(todayPrice, today, System.currentTimeMillis())
+                
+                // 9. 汇总结果
+                val messages = mutableListOf<String>()
+                messages.add("今日金价：${String.format("%.2f", todayPrice)} 元/克 (上金所)")
+                if (windowResult.isNotEmpty()) messages.addAll(windowResult)
+                if (crashResult.isNotEmpty()) messages.addAll(crashResult)
+                
+                // 9. 发送通知
+                notificationHelper.sendPriceUpdateNotification(
                     price = todayPrice,
                     source = "上海黄金交易所",
-                    isTradingDay = true
+                    poolBalance = currentConfig.poolBalance,
+                    messages = messages
                 )
-            )
-            Log.d(TAG, "5. 完成")
-            
-            // 6. 执行窗口期策略
-            Log.d(TAG, "6. 开始执行窗口期策略...")
-            val windowResult = executeWindowPeriodStrategy(todayPrice, today)
-            Log.d(TAG, "6. 完成 - 窗口期结果：${windowResult.size} 条")
-            
-            // 7. 执行暴跌监控策略（优先使用 API 返回的昨结算价）
-            val yesterdayPrice = priceData.yesterdayPrice ?: currentConfig.lastPrice
-            val crashResult = executeCrashMonitorStrategy(todayPrice, yesterdayPrice, today, currentConfig)
-            
-            // 8. 更新最后运行时间和昨日金价
-            globalConfigDao.updateLastPrice(todayPrice, today, System.currentTimeMillis())
-            
-            // 9. 汇总结果
-            val messages = mutableListOf<String>()
-            messages.add("今日金价：${String.format("%.2f", todayPrice)} 元/克 (上金所)")
-            if (windowResult.isNotEmpty()) messages.addAll(windowResult)
-            if (crashResult.isNotEmpty()) messages.addAll(crashResult)
-            
-            // 9. 发送通知
-            notificationHelper.sendPriceUpdateNotification(
-                price = todayPrice,
-                source = "上海黄金交易所",
-                poolBalance = currentConfig.poolBalance,
-                messages = messages
-            )
-            
-            Log.d(TAG, "监控任务完成")
-            MonitorResult.Success(messages.joinToString("\n"))
-            
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            // 协程被取消（应用切换后台/页面关闭）
-            Log.w(TAG, "监控任务被取消：${e.message}")
-            MonitorResult.Skipped("任务被取消")
-        } catch (e: Exception) {
-            Log.e(TAG, "监控任务失败", e)
-            MonitorResult.Error(e.message ?: "未知错误")
+                
+                Log.d(TAG, "监控任务完成")
+                MonitorResult.Success(messages.joinToString("\n"))
+                
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 协程被取消（应用切换后台/页面关闭）
+                Log.w(TAG, "监控任务被取消：${e.message}")
+                MonitorResult.Skipped("任务被取消")
+            } catch (e: Exception) {
+                Log.e(TAG, "监控任务失败", e)
+                MonitorResult.Error(e.message ?: "未知错误")
+            }
         }
     }
     
@@ -197,8 +204,11 @@ class MonitorService(
             // 跳过已触发的窗口期
             if (period.isTriggered) continue
             
-            // 跳过已过期的窗口期（不自动删除，只是不触发）
-            if (period.isExpired()) continue
+            // 检查是否在窗口期内（核心修复：必须在开始日期之后）
+            if (!period.isInWindow()) {
+                Log.d(TAG, "窗口期 ${period.getDateRangeString()} 尚未开始或已结束，跳过")
+                continue
+            }
             
             // 检查是否到期（今年）- 最后一天触发
             val calendar = java.util.Calendar.getInstance()
@@ -219,8 +229,10 @@ class MonitorService(
             // 计算均线
             Log.d(TAG, "窗口期 ${period.startMonth}-${period.startDay} 到 ${period.endMonth}-${period.endDay}：开始计算均线...")
             val maPeriod = period.maPeriod
-            val avgPrice = calculateMovingAverage(today, maPeriod)
-            Log.d(TAG, "均线计算完成：$maPeriod 日均线 = $avgPrice")
+            val previousPrices = getPreviousPrices(today, maPeriod)
+            val avgPrice = PriceCalculator.calculateMA(previousPrices, maPeriod)
+            
+            Log.d(TAG, "均线计算完成：$maPeriod 日均线 = $avgPrice (基于过去 ${previousPrices.size} 个交易日)")
             if (avgPrice == null) {
                 Log.w(TAG, "无法计算${maPeriod}日均线，数据不足")
                 continue
@@ -285,28 +297,34 @@ class MonitorService(
      * 处理窗口期触发买入
      */
     private suspend fun handleWindowTrigger(period: WindowPeriod, price: Double, date: Long) {
-        // 更新窗口期状态
-        windowPeriodDao.update(
-            period.copy(
-                isTriggered = true,
-                triggeredDate = date,
-                actualBuyAmount = period.buyAmount
+        db.withTransaction {
+            // 重新检查状态，防止并发触发
+            val currentPeriod = windowPeriodDao.getById(period.id)
+            if (currentPeriod == null || currentPeriod.isTriggered) return@withTransaction
+
+            // 更新窗口期状态
+            windowPeriodDao.update(
+                currentPeriod.copy(
+                    isTriggered = true,
+                    triggeredDate = date,
+                    actualBuyAmount = currentPeriod.buyAmount
+                )
             )
-        )
-        
-        // 记录买入日志
-        buyLogDao.insert(
-            BuyLog(
-                buyDate = date,
-                buyAmount = period.buyAmount,
-                price = price,
-                reason = BuyReason.WINDOW_TRIGGER,
-                windowPeriodId = period.id,
-                note = "窗口期触发：低于${period.maPeriod}日均线${period.triggerThreshold}%"
+            
+            // 记录买入日志
+            buyLogDao.insert(
+                BuyLog(
+                    buyDate = date,
+                    buyAmount = currentPeriod.buyAmount,
+                    price = price,
+                    reason = BuyReason.WINDOW_TRIGGER,
+                    windowPeriodId = currentPeriod.id,
+                    note = "窗口期触发：低于${currentPeriod.maPeriod}日均线${currentPeriod.triggerThreshold}%"
+                )
             )
-        )
+        }
         
-        // 发送买入通知
+        // 发送买入通知 (在事务外发送，避免事务失败导致通知错误)
         notificationHelper.sendBuyNotification(
             amount = period.buyAmount,
             price = price,
@@ -314,7 +332,7 @@ class MonitorService(
             note = "低于${period.maPeriod}日均线${period.triggerThreshold}%"
         )
     }
-    
+
     /**
      * 处理窗口期到期
      */
@@ -324,33 +342,39 @@ class MonitorService(
         date: Long,
         remainingAmount: Int
     ) {
-        // 更新窗口期状态
-        windowPeriodDao.update(
-            period.copy(
-                isTriggered = true,
-                triggeredDate = date,
-                actualBuyAmount = 1
+        db.withTransaction {
+            // 重新检查状态
+            val currentPeriod = windowPeriodDao.getById(period.id)
+            if (currentPeriod == null || currentPeriod.isTriggered) return@withTransaction
+
+            // 更新窗口期状态
+            windowPeriodDao.update(
+                currentPeriod.copy(
+                    isTriggered = true,
+                    triggeredDate = date,
+                    actualBuyAmount = 1
+                )
             )
-        )
-        
-        // 更新监控池余额
-        val config = globalConfigDao.getConfig() ?: return
-        val newBalance = config.poolBalance + remainingAmount
-        globalConfigDao.updatePoolBalance(newBalance, System.currentTimeMillis())
-        
-        Log.d(TAG, "窗口期到期：买入 1 克，${remainingAmount}克进入监控池，新余额：$newBalance")
-        
-        // 记录买入日志
-        buyLogDao.insert(
-            BuyLog(
-                buyDate = date,
-                buyAmount = 1,
-                price = price,
-                reason = BuyReason.WINDOW_EXPIRE,
-                windowPeriodId = period.id,
-                note = "窗口期到期强制买入，${remainingAmount}克进入监控池"
+            
+            // 更新监控池余额
+            val config = globalConfigDao.getConfig() ?: return@withTransaction
+            val newBalance = config.poolBalance + remainingAmount
+            globalConfigDao.updatePoolBalance(newBalance, System.currentTimeMillis())
+            
+            Log.d(TAG, "窗口期到期：买入 1 克，${remainingAmount}克进入监控池，新余额：$newBalance")
+            
+            // 记录买入日志
+            buyLogDao.insert(
+                BuyLog(
+                    buyDate = date,
+                    buyAmount = 1,
+                    price = price,
+                    reason = BuyReason.WINDOW_EXPIRE,
+                    windowPeriodId = currentPeriod.id,
+                    note = "窗口期到期强制买入，${remainingAmount}克进入监控池"
+                )
             )
-        )
+        }
         
         // 发送买入通知
         notificationHelper.sendBuyNotification(
@@ -360,62 +384,70 @@ class MonitorService(
             note = "${remainingAmount}克进入监控池"
         )
     }
-    
+
     /**
      * 处理暴跌反弹买入
      */
     private suspend fun handleCrashRebound(price: Double, date: Long, config: GlobalConfig) {
-        // 更新监控池余额
-        val newBalance = config.poolBalance - 1
-        globalConfigDao.updatePoolBalance(newBalance, System.currentTimeMillis())
-        
-        // 记录买入日志
-        buyLogDao.insert(
-            BuyLog(
-                buyDate = date,
-                buyAmount = 1,
-                price = price,
-                reason = BuyReason.CRASH_REBOUND,
-                note = "连续下跌${config.continuousDropDays}天后反弹"
+        var actualContinuousDropDays = 0
+        db.withTransaction {
+            // 重新获取配置以获取最新余额 and 状态
+            val currentConfig = globalConfigDao.getConfig() ?: return@withTransaction
+            if (!currentConfig.isContinuousDrop || currentConfig.poolBalance <= 0) return@withTransaction
+            
+            actualContinuousDropDays = currentConfig.continuousDropDays
+            
+            // 更新监控池余额
+            val newBalance = currentConfig.poolBalance - 1
+            globalConfigDao.updatePoolBalance(newBalance, System.currentTimeMillis())
+            
+            // 记录买入日志
+            buyLogDao.insert(
+                BuyLog(
+                    buyDate = date,
+                    buyAmount = 1,
+                    price = price,
+                    reason = BuyReason.CRASH_REBOUND,
+                    note = "连续下跌${actualContinuousDropDays}天后反弹"
+                )
             )
-        )
+        }
         
         // 发送买入通知
         notificationHelper.sendBuyNotification(
             amount = 1,
             price = price,
             reason = "暴跌反弹",
-            note = "连续下跌${config.continuousDropDays}天后反弹"
+            note = "连续下跌${actualContinuousDropDays}天后反弹"
         )
     }
     
     /**
-     * 计算移动平均线
+     * 获取指定日期之前的历史金价（不含该日期）
+     * 
+     * @param today 当前日期时间戳
+     * @param count 需要获取的天数
+     * @return 价格列表，按时间倒序排列（索引 0 是昨天）
      */
-    private suspend fun calculateMovingAverage(today: Long, maPeriod: Int): Double? {
+    private suspend fun getPreviousPrices(today: Long, count: Int): List<Double> {
+        val prices = mutableListOf<Double>()
         val calendar = Calendar.getInstance()
         calendar.time = Date(today)
         
-        var count = 0
-        var sum = 0.0
         var daysBack = 0
-        val maxDaysBack = maPeriod * 3  // 最多往前找 3 倍天数，防止死循环
+        val maxDaysBack = count * 3 // 最多往前找 3 倍天数，防止死循环
         
-        // 往前查找 maPeriod 个交易日的价格（完全依赖数据库记录）
-        while (count < maPeriod && daysBack < maxDaysBack) {
+        while (prices.size < count && daysBack < maxDaysBack) {
             calendar.add(Calendar.DAY_OF_MONTH, -1)
             daysBack++
             
             val date = calendar.timeInMillis
             val record = priceRecordDao.getByDate(date)
-            if (record != null) {  // 只有有记录的才算交易日
-                sum += record.price
-                count++
+            if (record != null) {
+                prices.add(record.price)
             }
         }
-        
-        Log.d(TAG, "均线计算：查找了 $daysBack 天，找到 $count 条记录")
-        return if (count > 0) sum / count else null
+        return prices
     }
     
     /**
