@@ -1,36 +1,34 @@
 package com.goldmonitor.ui
 
 import android.app.TimePickerDialog
-import android.widget.Button
-import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
-import com.goldmonitor.util.BackupManager
-import java.io.OutputStreamWriter
-import java.io.InputStreamReader
-import java.util.Date
 import android.os.Bundle
 import android.util.Log
+import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import java.util.Calendar
 import com.goldmonitor.GoldMonitorApp
 import com.goldmonitor.R
-import com.goldmonitor.data.AppDatabase
-import com.goldmonitor.data.SgeGoldFetcher
 import com.goldmonitor.databinding.ActivityMainBinding
 import com.goldmonitor.model.GlobalConfig
 import com.goldmonitor.model.WindowPeriod
-import com.goldmonitor.util.PriceCalculator
-import kotlinx.coroutines.withTimeoutOrNull
+import com.goldmonitor.service.MonitorResult
 import com.goldmonitor.service.MonitorScheduler
 import com.goldmonitor.service.MonitorService
-import com.goldmonitor.service.MonitorResult
+import com.goldmonitor.util.BackupManager
+import com.goldmonitor.util.DateUtils
 import com.goldmonitor.util.NotificationHelper
+import com.goldmonitor.util.PriceCalculator
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 主界面
@@ -246,15 +244,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             "低于 ${String.format("%.2f", diff)} (${String.format("%.2f", diffPercent)}%)"
         }
-    }
-    
-    private fun getTodayTimestamp(): Long {
-        val calendar = java.util.Calendar.getInstance()
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        return calendar.timeInMillis
     }
     
     private fun runMonitorNow() {
@@ -498,7 +487,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupCrashTest() {
         lifecycleScope.launch {
             // 设置昨日金价为 1030（今日约 1021，跌幅约 0.9%）
-            db.globalConfigDao().updateLastPrice(1030.0, getTodayTimestamp() - 86400000, System.currentTimeMillis())
+            db.globalConfigDao().updateLastPrice(1030.0, DateUtils.getTodayTimestamp() - 86400000, System.currentTimeMillis())
             
             // 设置暴跌阈值为 0.5%（很容易触发）
             val config = db.globalConfigDao().getConfig()

@@ -3,16 +3,23 @@ package com.goldmonitor.service
 import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
-import com.goldmonitor.data.*
-import com.goldmonitor.model.*
+import com.goldmonitor.data.AppDatabase
+import com.goldmonitor.data.SgeGoldFetcher
+import com.goldmonitor.model.ApiCallLog
+import com.goldmonitor.model.BuyLog
+import com.goldmonitor.model.BuyReason
+import com.goldmonitor.model.GlobalConfig
+import com.goldmonitor.model.GoldPriceRecord
+import com.goldmonitor.model.WindowPeriod
+import com.goldmonitor.util.DateUtils
 import com.goldmonitor.util.NotificationHelper
 import com.goldmonitor.util.PriceCalculator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.util.*
-import java.util.concurrent.TimeUnit
+import java.util.Calendar
+import java.util.Date
 
 /**
  * 黄金监控服务
@@ -54,7 +61,7 @@ class MonitorService(
             try {
                 // 0. 检查今日是否已运行成功（非手动模式下）
                 val config = globalConfigDao.getConfig()
-                val today = getTodayTimestamp()
+                val today = DateUtils.getTodayTimestamp()
                 
                 if (!isManual && config?.lastRunDate != null && config.lastRunDate >= today) {
                     Log.d(TAG, "今日已运行成功，跳过自动执行")
@@ -64,7 +71,7 @@ class MonitorService(
                 Log.d(TAG, "1. 检查是否是工作日...")
                 
                 // 1. 检查是否是工作日
-                if (!isTradingDay()) {
+                if (!DateUtils.isTradingDay()) {
                     Log.d(TAG, "今日非交易日，跳过")
                     return@withContext MonitorResult.Skipped("非交易日")
                 }
@@ -448,27 +455,6 @@ class MonitorService(
             }
         }
         return prices
-    }
-    
-    /**
-     * 检查是否是交易日（工作日）
-     */
-    private fun isTradingDay(): Boolean {
-        val calendar = Calendar.getInstance()
-        val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-        return dayOfWeek != Calendar.SATURDAY && dayOfWeek != Calendar.SUNDAY
-    }
-    
-    /**
-     * 获取今日 0 点时间戳
-     */
-    private fun getTodayTimestamp(): Long {
-        val calendar = Calendar.getInstance()
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        return calendar.timeInMillis
     }
 }
 

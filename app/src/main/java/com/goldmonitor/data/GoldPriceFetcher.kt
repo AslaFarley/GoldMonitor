@@ -2,7 +2,7 @@ package com.goldmonitor.data
 
 import android.content.Context
 import android.util.Log
-import com.goldmonitor.model.GoldPriceRecord
+import com.goldmonitor.util.DateUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -119,7 +119,7 @@ class SgeGoldFetcher(
                     
                     // 增加 API 调用计数
                     db?.let { database ->
-                        val today = getTodayTimestamp()
+                        val today = DateUtils.getTodayTimestamp()
                         database.globalConfigDao().incrementApiCallCount(today)
                         Log.d(TAG, "上金所：API 调用次数 +1")
                     }
@@ -238,16 +238,4 @@ class SgeGoldFetcher(
      * 获取数据源名称
      */
     fun getSourceName(): String = "上海黄金交易所"
-    
-    /**
-     * 获取今日 0 点时间戳
-     */
-    private fun getTodayTimestamp(): Long {
-        val calendar = java.util.Calendar.getInstance()
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        return calendar.timeInMillis
-    }
 }
