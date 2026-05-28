@@ -116,6 +116,12 @@ class MonitorForegroundService : Service() {
                         }
                         is MonitorResult.Error -> {
                             Log.e(TAG, "监控失败：${result.message}")
+                            
+                            // 如果是网络相关错误，调度 WorkManager 补课
+                            if (result.message.contains("网络") || result.message.contains("API")) {
+                                Log.d(TAG, "检测到网络相关错误，调度 WorkManager 补课")
+                                MonitorScheduler.scheduleWork(applicationContext)
+                            }
                         }
                     }
                 }

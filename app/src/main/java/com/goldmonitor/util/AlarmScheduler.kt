@@ -16,6 +16,7 @@ object AlarmScheduler {
     
     private const val TAG = "AlarmScheduler"
     private const val REQUEST_CODE = 1001
+    const val ACTION_ALARM_TRIGGER = "com.goldmonitor.ACTION_ALARM_TRIGGER"
     
     /**
      * 设置每日定时闹钟
@@ -27,7 +28,9 @@ object AlarmScheduler {
         val triggerTime = calculateNextTriggerTime(hour, minute)
         
         // 创建 PendingIntent
-        val intent = Intent(context, AlarmReceiver::class.java)
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_ALARM_TRIGGER
+        }
         val pendingIntent = PendingIntent.getBroadcast(
             context, REQUEST_CODE, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

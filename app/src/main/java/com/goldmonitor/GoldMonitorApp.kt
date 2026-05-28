@@ -44,8 +44,38 @@ class GoldMonitorApp : Application() {
             } else {
                 // 如果配置已存在，重新设置闹钟
                 MonitorScheduler.scheduleDaily(applicationContext, config.runHour, config.runMinute)
+                
+                // 启动补课逻辑：如果当前时间已过设定时间，且今日未运行，立即触发一次
+                val calendar = java.util.Calendar.getInstance()
+                val nowHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+                val nowMinute = calendar.get(java.util.Calendar.MINUTE)
+                
+                val isPastRunTime = if (nowHour > config.runHour) {
+                    true
+                } else if (nowHour == config.runHour) {
+                    nowMinute >= config.runMinute
+                } else {
+                    false
+                }
+                
+                if (isPastRunTime) {
+                    val today = getTodayTimestamp()
+                    if (config.lastRunDate == null || config.lastRunDate < today) {
+                        android.util.Log.d("GoldMonitorApp", "App 启动补课：已过时间且未运行")
+                        MonitorScheduler.runNow(applicationContext)
+                    }
+                }
             }
         }
+    }
+    
+    private fun getTodayTimestamp(): Long {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
     }
     
     /**

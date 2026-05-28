@@ -75,11 +75,7 @@
         <!-- 闹钟接收器 -->
         <receiver
             android:name=".receiver.AlarmReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
+            android:exported="false" />
         
         <!-- WorkManager 初始化 -->
         <provider

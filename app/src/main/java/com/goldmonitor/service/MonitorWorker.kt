@@ -24,7 +24,7 @@ class MonitorWorker(
     )
     
     override suspend fun doWork(): Result {
-        return try {
+         return try {
             val result = monitorService.runMonitor()
             
             when (result) {
@@ -35,8 +35,13 @@ class MonitorWorker(
                     Result.success()
                 }
                 is MonitorResult.Error -> {
-                    notificationHelper.sendErrorNotification(result.message)
-                    Result.retry()
+                    // 如果是网络相关错误，则允许重试
+                    if (result.message.contains("网络") || result.message.contains("API")) {
+                        Result.retry()
+                    } else {
+                        notificationHelper.sendErrorNotification(result.message)
+                        Result.success() // 其他非网络错误不再重试
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -46,7 +51,7 @@ class MonitorWorker(
 }
 
 /**
- * 监控任务调度器（使用 AlarmManager）
+ * 监控任务调度器（使用 AlarmManager + WorkManager）
  */
 object MonitorScheduler {
     
@@ -58,7 +63,7 @@ object MonitorScheduler {
     }
     
     /**
-     * 立即运行一次（使用 WorkManager 作为补充）
+     * 立即运行一次（通过前台服务）
      */
     fun runNow(context: Context) {
         // 直接启动前台服务执行
@@ -70,6 +75,30 @@ object MonitorScheduler {
         } else {
             context.startService(serviceIntent)
         }
+    }
+
+    /**
+     * 调度 WorkManager 任务（带网络约束，用于补课或重试）
+     */
+    fun scheduleWork(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val workRequest = OneTimeWorkRequestBuilder<MonitorWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                15,
+                TimeUnit.MINUTES
+            )
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "monitor_retry_work",
+            ExistingWorkPolicy.KEEP,
+            workRequest
+        )
     }
     
     /**

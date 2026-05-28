@@ -21,6 +21,14 @@ class AlarmReceiver : BroadcastReceiver() {
     }
     
     override fun onReceive(context: Context, intent: Intent) {
+        Log.d(TAG, "接收到广播: ${intent.action}")
+        
+        val action = intent.action
+        if (action != com.goldmonitor.util.AlarmScheduler.ACTION_ALARM_TRIGGER) {
+            Log.d(TAG, "非预期 Action，忽略")
+            return
+        }
+
         Log.d(TAG, "闹钟触发，启动监控服务")
         
         // 启动前台服务执行监控
@@ -39,7 +47,7 @@ class AlarmReceiver : BroadcastReceiver() {
             val db = GoldMonitorApp.database
             val config = db.globalConfigDao().getConfig()
             if (config != null) {
-                MonitorScheduler.scheduleDaily(
+                com.goldmonitor.service.MonitorScheduler.scheduleDaily(
                     context.applicationContext,
                     config.runHour,
                     config.runMinute
